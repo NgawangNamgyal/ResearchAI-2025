@@ -1,0 +1,76 @@
+#The language I'm using is Python and I built this code on the PyCharm CE IDE.
+
+import requests
+from bs4 import BeautifulSoup
+import openai
+import os
+
+def get_arXiv_info(topic: str, num_papers: int = 10) -> str:
+    print("[Step 1]: Getting Links from arXiv")
+    search_url = (
+        f"https://arxiv.org/search/?query={topic}"
+        "&searchtype=all&abstracts=show&order=-announced_date_first&size=50"
+    )
+    resp = requests.get(search_url)
+    resp.raise_for_status()
+    doc = BeautifulSoup(resp.text, "html.parser")
+
+    # collect top‑N abstract links
+    links = []
+    for a in doc.find_all('a', href=True):
+        href = a['href']
+        if href.startswith('https://arxiv.org/abs/'):
+            links.append(href)
+    links = list(dict.fromkeys(links))[:num_papers]
+
+    abstracts = []
+    for i, link in enumerate(links, start=1):
+        print(f"[Paper {i}] Fetching abstract from {link}")
+        paper_resp = requests.get(link)
+        paper_resp.raise_for_status()
+        paper_soup = BeautifulSoup(paper_resp.text, "html.parser")
+
+        meta_tag = paper_soup.find("meta", {"property": "og:description"})
+        abstract = meta_tag["content"] if meta_tag and meta_tag.get("content") else "No abstract found."
+        abstracts.append(f"Publication #{i} ({link}):\n{abstract}")
+
+    return "\n\n".join(abstracts)
+
+
+def ask_chatgpt(abstracts: str, topic: str, question: str) -> str:
+    print("[Step 3] Sending to ChatGPT...")
+    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    prompt = (
+        f"I have collected the following abstracts on '{topic}':\n\n"
+        f"{abstracts}\n\n"
+        f"Based on these abstracts, please answer the following question:\n"
+        f"{question}\n\n"
+        f"Please provide a concise, bullet‑point response and cite the publication numbers and links. If the abstracts provided aren't relevant to the question, please state  'More Information Required'"
+    )
+    response = client.chat.completions.create(
+        model="gpt-4.1-nano",
+        messages=[
+            {"role": "system", "content": "You are an expert assistant summarizing scientific abstracts."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.5,
+        max_tokens=1200
+    )
+    return response.choices[0].message.content
+
+
+def main():
+    topic = input("Enter a topic: ").strip()
+    question = input("Enter your specific question: ").strip()
+    abstracts = get_arXiv_info(topic)
+
+    print("\n[Step 2] Collected Abstracts:\n")
+    print(abstracts)
+
+    answer = ask_chatgpt(abstracts, topic, question)
+    print("\n[Step 4] AI Answer:\n")
+    print(answer)
+
+
+if __name__ == "__main__":
+    main()
