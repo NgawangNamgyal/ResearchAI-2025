@@ -1,10 +1,57 @@
 #The language I'm using is Python and I built this code on the PyCharm CE IDE.
-
 import requests
 from bs4 import BeautifulSoup
 import openai
 import os
+import fitz  # PyMuPDF
+import re
 
+# --- Helper to download and parse arXiv PDF ---
+def download_pdf_text(arxiv_url: str) -> str:
+    pdf_url = arxiv_url.replace("/abs/", "/pdf/") + ".pdf" #test at home by removing ".pdf"
+    response = requests.get(pdf_url)
+    response.raise_for_status()
+
+    with open("temp.pdf", "wb") as f:
+        f.write(response.content)
+
+    with fitz.open("temp.pdf") as doc:
+        return "\n".join(page.get_text() for page in doc)
+
+# --- Extract section like Results or Discussion ---
+def extract_results_section(text: str, section_keywords=["results", "discussion"], word_limit=100) -> str:
+    lines = text.splitlines()
+    section_text = ""
+    recording = False
+
+    for line in lines:
+        lower = line.lower().strip()
+        if any(kw in lower for kw in section_keywords):
+            recording = True
+        elif recording and (lower.startswith("references") or lower.startswith("acknowledg")):
+            break
+
+        if recording:
+            section_text += " " + line.strip()
+
+    # Limit to 100 words
+    words = section_text.split()
+    return " ".join(words[:word_limit]) if words else "Section not found."
+
+# --- Find sentence containing "space group" and its neighbors ---
+def extract_space_group_context(text: str) -> str:
+    sentences = re.split(r'(?<=[.!?]) +', text)
+    matches = []
+
+    for i, sentence in enumerate(sentences):
+        if "space group" in sentence.lower():
+            prev = sentences[i - 1] if i > 0 else ""
+            next = sentences[i + 1] if i < len(sentences) - 1 else ""
+            matches.append(f"{prev} {sentence} {next}")
+
+    return "\n\n".join(matches) if matches else "No mentions of 'space group' found."
+
+# --- arXiv Search and Extraction ---
 def get_arXiv_info(topic: str, num_papers: int = 10) -> str:
     print("[Step 1]: Getting Links from arXiv")
     search_url = (
@@ -15,7 +62,6 @@ def get_arXiv_info(topic: str, num_papers: int = 10) -> str:
     resp.raise_for_status()
     doc = BeautifulSoup(resp.text, "html.parser")
 
-    # collect top‑N abstract links
     links = []
     for a in doc.find_all('a', href=True):
         href = a['href']
@@ -25,52 +71,67 @@ def get_arXiv_info(topic: str, num_papers: int = 10) -> str:
 
     abstracts = []
     for i, link in enumerate(links, start=1):
-        print(f"[Paper {i}] Fetching abstract from {link}")
+        print(f"[Paper {i}] Fetching abstract and PDF content from {link}")
         paper_resp = requests.get(link)
         paper_resp.raise_for_status()
         paper_soup = BeautifulSoup(paper_resp.text, "html.parser")
 
         meta_tag = paper_soup.find("meta", {"property": "og:description"})
         abstract = meta_tag["content"] if meta_tag and meta_tag.get("content") else "No abstract found."
-        abstracts.append(f"Publication #{i} ({link}):\n{abstract}")
+
+        # PDF text extraction
+        try:
+            pdf_text = download_pdf_text(link)
+            result_snippet = extract_results_section(pdf_text)
+            space_group_info = extract_space_group_context(pdf_text)
+        except Exception as e:
+            result_snippet = f"Error reading PDF: {e}"
+            space_group_info = "N/A"
+
+        abstracts.append(
+            f"Publication #{i} ({link}):\n"
+            f"Abstract:\n{abstract}\n\n"
+            f"PDF Results Section (100 words max):\n{result_snippet}\n\n"
+            f"Context Around 'Space Group':\n{space_group_info}\n"
+        )
 
     return "\n\n".join(abstracts)
 
-
+# --- ChatGPT Answering Function ---
 def ask_chatgpt(abstracts: str, topic: str, question: str) -> str:
     print("[Step 3] Sending to ChatGPT...")
     client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     prompt = (
-        f"I have collected the following abstracts on '{topic}':\n\n"
+        f"I have collected the following abstracts and extracted content on '{topic}':\n\n"
         f"{abstracts}\n\n"
-        f"Based on these abstracts, please answer the following question:\n"
+        f"Based on this, please answer the following question:\n"
         f"{question}\n\n"
-        f"Please provide a concise, bullet‑point response and cite the publication numbers and links. If the abstracts provided aren't relevant to the question, please state  'More Information Required'"
+        f"Respond with a concise, bullet‑point answer and cite cite the publication numbers and links(If your answer requires using information from multiple links, write all related links). Make sure to only mention the space group of the material if its mentioned in the text, do not use your own knowledge for this."
+        f"If the info is insufficient, say 'More Information Required'."
     )
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
         messages=[
-            {"role": "system", "content": "You are an expert assistant summarizing scientific abstracts."},
+            {"role": "system", "content": "You are an expert assistant summarizing scientific papers."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.5,
-        max_tokens=1200
+        max_tokens=1500
     )
     return response.choices[0].message.content
 
-
+# --- Main ---
 def main():
     topic = input("Enter a topic: ").strip()
     question = input("Enter your specific question: ").strip()
     abstracts = get_arXiv_info(topic)
 
-    print("\n[Step 2] Collected Abstracts:\n")
+    print("\n[Step 2] Collected Info:\n")
     print(abstracts)
 
     answer = ask_chatgpt(abstracts, topic, question)
     print("\n[Step 4] AI Answer:\n")
     print(answer)
-
 
 if __name__ == "__main__":
     main()
