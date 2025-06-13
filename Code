@@ -1,4 +1,5 @@
 #The language I'm using is Python and I built this code on the PyCharm CE IDE.
+
 import requests
 from bs4 import BeautifulSoup
 import openai
@@ -6,9 +7,27 @@ import os
 import fitz  # PyMuPDF
 import re
 
+
+def is_new_link(link: str, used_links_file: str = "used_links.txt") -> bool:
+    """Check if the link is new. If yes, add it to the file and return True."""
+    if not os.path.exists(used_links_file):
+        open(used_links_file, 'w').close()  # Create the file if it doesn't exist
+
+    with open(used_links_file, 'r') as f:
+        used_links = set(line.strip() for line in f)
+
+    if link in used_links:
+        return False  # Already used
+
+    # New link, so add it
+    with open(used_links_file, 'a') as f:
+        f.write(link + "\n")
+    return True
+
+
 # --- Helper to download and parse arXiv PDF ---
 def download_pdf_text(arxiv_url: str) -> str:
-    pdf_url = arxiv_url.replace("/abs/", "/pdf/") + ".pdf" #test at home by removing ".pdf"
+    pdf_url = arxiv_url.replace("/abs/", "/pdf/") + ".pdf"
     response = requests.get(pdf_url)
     response.raise_for_status()
 
@@ -52,7 +71,7 @@ def extract_space_group_context(text: str) -> str:
     return "\n\n".join(matches) if matches else "No mentions of 'space group' found."
 
 # --- arXiv Search and Extraction ---
-def get_arXiv_info(topic: str, num_papers: int = 10) -> str:
+def get_arXiv_info(topic: str, num_papers: int = 5) -> str:
     print("[Step 1]: Getting Links from arXiv")
     search_url = (
         f"https://arxiv.org/search/?query={topic}"
@@ -65,8 +84,10 @@ def get_arXiv_info(topic: str, num_papers: int = 10) -> str:
     links = []
     for a in doc.find_all('a', href=True):
         href = a['href']
-        if href.startswith('https://arxiv.org/abs/'):
+        if href.startswith('https://arxiv.org/abs/') and is_new_link(href):
             links.append(href)
+            if len(links) >= num_papers:
+                break
     links = list(dict.fromkeys(links))[:num_papers]
 
     abstracts = []
@@ -106,7 +127,7 @@ def ask_chatgpt(abstracts: str, topic: str, question: str) -> str:
         f"{abstracts}\n\n"
         f"Based on this, please answer the following question:\n"
         f"{question}\n\n"
-        f"Respond with a concise, bullet‑point answer and cite cite the publication numbers and links(If your answer requires using information from multiple links, write all related links). Make sure to only mention the space group of the material if its mentioned in the text, do not use your own knowledge for this."
+        f"Respond with a concise, bullet‑point answer and cite publication numbers/links. "
         f"If the info is insufficient, say 'More Information Required'."
     )
     response = client.chat.completions.create(
@@ -116,7 +137,7 @@ def ask_chatgpt(abstracts: str, topic: str, question: str) -> str:
             {"role": "user", "content": prompt}
         ],
         temperature=0.5,
-        max_tokens=1500
+        max_tokens=1200
     )
     return response.choices[0].message.content
 
