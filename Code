@@ -7,6 +7,7 @@ import os
 import fitz  # PyMuPDF
 import re
 
+#OPENAI_API_KEY is an env variable. If you need to run this please email me and I will provide you the code
 
 def is_new_link(link: str, used_links_file: str = "used_links.txt") -> bool:
     """Check if the link is new. If yes, add it to the file and return True."""
