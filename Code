@@ -4,13 +4,12 @@ import openai
 import os
 import fitz  # PyMuPDF
 import re
-
-
-#OPENAI_API_KEY is an env var. If you need it, contact me.
-
 import tkinter as tk
-from tkinter import messagebox
 from tkinter import Toplevel, scrolledtext
+from tkinter import ttk
+
+# OPENAI_API_KEY is an env variable, if you need it contact me. 
+
 
 
 
@@ -169,46 +168,48 @@ def ask_chatgpt(abstracts: str, topic: str, question: str) -> str:
 # --- Main ---
 
 def main():
-    topic = name_entry.get()
+    topic = topic_entry.get()
     abstracts = get_arXiv_info(topic)
     question = question_entry.get()
     answer = ask_chatgpt(abstracts, topic, question)
     print(answer)
-    messagebox.showinfo(f"ChatGPT Response:", f"{answer}")
-
+    output_text.config(state="normal")  # Make the Text widget editable temporarily
+    output_text.delete("1.0", tk.END)  # Clear previous content
+    output_text.insert(tk.END, f"Response:\n {answer}")
+    output_text.config(state="disabled")  # Make it read-only again
 
 
 # Create main window
 root = tk.Tk()
-root.title("Responsive GUI")
-root.geometry("400x200")
-
-# Configure grid columns to expand with window
-root.columnconfigure(0, weight=1)
-root.columnconfigure(1, weight=3)
-
-# --- Topic Label and Entry ---
-label1 = tk.Label(root, text="Enter topic:")
-label1.grid(row=0, column=0, sticky="e", padx=5, pady=0)
-name_entry = tk.Entry(root)
-name_entry.grid(row=0, column=1, sticky="ew", padx=0)
-
-# --- Question Label and Entry ---
-label2 = tk.Label(root, text="Enter question:")
-label2.grid(row=1, column=0, sticky="e", padx=5, pady=0)
-
-question_entry = tk.Entry(root)
-question_entry.grid(row=1, column=1, sticky="ew", padx=0)
-
-# --- Submit Button ---
-submit_button = tk.Button(root, text="Submit", command=main)
-submit_button.grid(row=2, column=0, columnspan=2, pady=20)
+root.title("Simple GUI with Scrolling Output")
+root.geometry("450x300")
+root.attributes("-fullscreen", True)
 
 
-# Allow resizing
-root.grid_rowconfigure(0, weight=1)
-root.grid_rowconfigure(1, weight=1)
+# Topic label and entry
+tk.Label(root, text="Enter topic:").pack(anchor='w', padx=10, pady=(10, 0))
+topic_entry = tk.Entry(root, width=50)
+topic_entry.pack(padx=10, pady=(0, 10))
 
+# Question label and entry
+tk.Label(root, text="Enter question:").pack(anchor='w', padx=10)
+question_entry = tk.Entry(root, width=50)
+question_entry.pack(padx=10, pady=(0, 10))
+
+# Submit button
+tk.Button(root, text="Submit", command=main).pack(pady=(0, 10))
+
+# Text box with vertical scrollbar
+frame = tk.Frame(root)
+frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+output_text = tk.Text(frame, wrap="word", height=8, state="disabled")
+output_text.pack(side="left", fill="both", expand=True)
+
+scrollbar = ttk.Scrollbar(frame, orient="vertical", command=output_text.yview)
+scrollbar.pack(side="right", fill="y")
+output_text.config(yscrollcommand=scrollbar.set)
+
+# Run GUI
 root.mainloop()
-
 
