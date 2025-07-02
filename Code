@@ -1,5 +1,3 @@
-#The language I'm using is Python and I built this code on the PyCharm CE IDE.
-
 import requests
 from bs4 import BeautifulSoup
 import openai
@@ -7,7 +5,15 @@ import os
 import fitz  # PyMuPDF
 import re
 
-#OPENAI_API_KEY is an env variable. If you need to run this please email me and I will provide you the code
+
+#OPENAI_API_KEY is an env var. If you need it, contact me.
+
+import tkinter as tk
+from tkinter import messagebox
+from tkinter import Toplevel, scrolledtext
+
+
+
 
 def is_new_link(link: str, used_links_file: str = "used_links.txt") -> bool:
     """Check if the link is new. If yes, add it to the file and return True."""
@@ -59,18 +65,35 @@ def extract_results_section(text: str, section_keywords=["results", "discussion"
     return " ".join(words[:word_limit]) if words else "Section not found."
 
 # --- Find sentence containing "space group" and its neighbors ---
-def extract_space_group_context(text: str) -> str:
-    sentences = re.split(r'(?<=[.!?]) +', text)
-    matches = []
+
+def extract_neighbor_sentences(text: str, target_phrases: list) -> str:
+    """
+    Extracts the sentence containing any target phrase, plus one before and one after.
+    Prevents duplication of overlapping or repeated snippets.
+    """
+    # Split the text into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    results = []
+    used_indices = set()
 
     for i, sentence in enumerate(sentences):
-        if "space group" in sentence.lower():
-            prev = sentences[i - 1] if i > 0 else ""
-            next = sentences[i + 1] if i < len(sentences) - 1 else ""
-            matches.append(f"{prev} {sentence} {next}")
+        # Check if any target phrase is in the current sentence
+        if any(phrase in sentence.lower() for phrase in target_phrases):
+            # Define the range of sentences to include: previous, current, next
+            idx_range = set(range(max(i - 1, 0), min(i + 2, len(sentences))))
 
-    return "\n\n".join(matches) if matches else "No mentions of 'space group' found."
+            # If any of these indices were already used, skip to avoid duplication
+            if idx_range & used_indices:
+                continue
 
+            # Mark indices as used
+            used_indices.update(idx_range)
+
+            # Extract snippet and add to results
+            snippet = " ".join(sentences[j] for j in sorted(idx_range)).strip()
+            results.append(snippet)
+
+    return "\n\n".join(results) if results else "No target phrases found."
 # --- arXiv Search and Extraction ---
 def get_arXiv_info(topic: str, num_papers: int = 5) -> str:
     print("[Step 1]: Getting Links from arXiv")
@@ -100,21 +123,21 @@ def get_arXiv_info(topic: str, num_papers: int = 5) -> str:
 
         meta_tag = paper_soup.find("meta", {"property": "og:description"})
         abstract = meta_tag["content"] if meta_tag and meta_tag.get("content") else "No abstract found."
-
+        target_phrases = ["space group", "electronic properties", "elastic properties", "bulk modulus", "Young modulus", "Shear modulus", "Poisson’s ratio", "tangent modulus", "chord modulus", "hardness", "electrical conductivity", "carrier concentration", "carrier mobility", "band gap", "electron effective mass", "dielectric constant" ,"permittivity" , "charge recombination and lifetime"]
         # PDF text extraction
         try:
             pdf_text = download_pdf_text(link)
             result_snippet = extract_results_section(pdf_text)
-            space_group_info = extract_space_group_context(pdf_text)
+            properties = extract_neighbor_sentences(pdf_text, target_phrases)
         except Exception as e:
             result_snippet = f"Error reading PDF: {e}"
-            space_group_info = "N/A"
+            properties = "N/A"
 
         abstracts.append(
             f"Publication #{i} ({link}):\n"
             f"Abstract:\n{abstract}\n\n"
             f"PDF Results Section (100 words max):\n{result_snippet}\n\n"
-            f"Context Around 'Space Group':\n{space_group_info}\n"
+            f"Context Around 'Space Group':\n{properties}\n"
         )
 
     return "\n\n".join(abstracts)
@@ -128,7 +151,7 @@ def ask_chatgpt(abstracts: str, topic: str, question: str) -> str:
         f"{abstracts}\n\n"
         f"Based on this, please answer the following question:\n"
         f"{question}\n\n"
-        f"Respond with a concise, bullet‑point answer and cite publication numbers/links. "
+        f"Respond with concise answer in the form of bullet points and cite publication numbers/links. "
         f"If the info is insufficient, say 'More Information Required'."
     )
     response = client.chat.completions.create(
@@ -138,22 +161,54 @@ def ask_chatgpt(abstracts: str, topic: str, question: str) -> str:
             {"role": "user", "content": prompt}
         ],
         temperature=0.5,
-        max_tokens=1200
+        max_tokens=1500
     )
     return response.choices[0].message.content
 
+
 # --- Main ---
+
 def main():
-    topic = input("Enter a topic: ").strip()
-    question = input("Enter your specific question: ").strip()
+    topic = name_entry.get()
     abstracts = get_arXiv_info(topic)
-
-    print("\n[Step 2] Collected Info:\n")
-    print(abstracts)
-
+    question = question_entry.get()
     answer = ask_chatgpt(abstracts, topic, question)
-    print("\n[Step 4] AI Answer:\n")
     print(answer)
+    messagebox.showinfo(f"ChatGPT Response:", f"{answer}")
 
-if __name__ == "__main__":
-    main()
+
+
+# Create main window
+root = tk.Tk()
+root.title("Responsive GUI")
+root.geometry("400x200")
+
+# Configure grid columns to expand with window
+root.columnconfigure(0, weight=1)
+root.columnconfigure(1, weight=3)
+
+# --- Topic Label and Entry ---
+label1 = tk.Label(root, text="Enter topic:")
+label1.grid(row=0, column=0, sticky="e", padx=5, pady=0)
+name_entry = tk.Entry(root)
+name_entry.grid(row=0, column=1, sticky="ew", padx=0)
+
+# --- Question Label and Entry ---
+label2 = tk.Label(root, text="Enter question:")
+label2.grid(row=1, column=0, sticky="e", padx=5, pady=0)
+
+question_entry = tk.Entry(root)
+question_entry.grid(row=1, column=1, sticky="ew", padx=0)
+
+# --- Submit Button ---
+submit_button = tk.Button(root, text="Submit", command=main)
+submit_button.grid(row=2, column=0, columnspan=2, pady=20)
+
+
+# Allow resizing
+root.grid_rowconfigure(0, weight=1)
+root.grid_rowconfigure(1, weight=1)
+
+root.mainloop()
+
+
