@@ -1,0 +1,78 @@
+
+#PINECONE_API_KEY is an env var, if you need it, then contact me via my email namgylan@bxscience.edu
+#OPENAI_API_KEY is an env var, if you need it, then contact me via my email namgylan@bxscience.edu
+
+from pinecone import Pinecone, ServerlessSpec
+import os
+
+pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
+index_name = "developer-quickstart-py"
+
+if not pc.has_index(index_name):
+    pc.create_index_for_model(
+        name=index_name,
+        cloud="aws",
+        region="us-east-1",
+        embed={
+            "model":"llama-text-embed-v2",
+            "field_map":{"text": "chunk_text"}
+        }
+    )
+index = pc.Index(index_name)
+
+def build_records(texts, categories=None):
+    """
+    Given:
+      - texts: a list of strings (your document chunks)
+      - categories: an optional list of the same length with category names
+    Returns:
+      - A list of record dicts ready for index.upsert_records()
+    """
+    records = []
+    for i, text in enumerate(texts, start=1):
+        rec = {
+            "_id": f"rec{i}",
+            "chunk_text": text
+        }
+        if categories:
+            rec["category"] = categories[i-1]
+        records.append(rec)
+    return records
+
+# --- Usage example ---
+texts = [
+    "The Eiffel Tower was completed in 1889 and stands in Paris, France.",
+    "Photosynthesis allows plants to convert sunlight into energy.",
+    "Albert Einstein developed the theory of relativity.",
+    "The Empire State Building used to be one of the tallest buildings in the world."
+    # …and so on for as many chunks as you like…
+]
+
+# (Optional) parallel list of categories
+categories = [
+    "history",
+    "science",
+    "science",
+    "history",
+    # …
+]
+
+# Build your records list in one line:
+records = build_records(texts, categories)
+
+# Then upsert:
+index.upsert_records("ns1", records)
+
+query = "What are some historical structures?"
+#phrase it as a question. "What are..." for higher accuracy
+results = index.search(
+    namespace="ns1",
+    query={
+        "top_k": 2,
+        "inputs": {
+            'text': query
+        }
+    }
+)
+
+print(results)
