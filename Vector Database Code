@@ -4,6 +4,10 @@
 
 from pinecone import Pinecone, ServerlessSpec
 import os
+# load_list.py
+import json
+
+
 
 pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
 index_name = "developer-quickstart-py"
@@ -40,35 +44,32 @@ def build_records(texts, categories=None):
     return records
 
 # --- Usage example ---
-texts = [
-    "The Eiffel Tower was completed in 1889 and stands in Paris, France.",
-    "Photosynthesis allows plants to convert sunlight into energy.",
-    "Albert Einstein developed the theory of relativity.",
-    "The Empire State Building used to be one of the tallest buildings in the world."
-    # …and so on for as many chunks as you like…
-]
+with open("data.json", "r") as f:
+    texts = json.load(f)
+print(texts)
+
 
 # (Optional) parallel list of categories
-categories = [
-    "history",
-    "science",
-    "science",
-    "history",
-    # …
-]
+#     categories = [
+#         "history",
+#         "science",
+#         "science",
+#         "history",
+#         # …
+#     ]
 
 # Build your records list in one line:
-records = build_records(texts, categories)
+records = build_records(texts)
 
 # Then upsert:
 index.upsert_records("ns1", records)
 
-query = "What are some historical structures?"
+query = "P21 Space Group"
 #phrase it as a question. "What are..." for higher accuracy
 results = index.search(
     namespace="ns1",
     query={
-        "top_k": 2,
+        "top_k": 1,
         "inputs": {
             'text': query
         }
